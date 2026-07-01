@@ -1,3 +1,5 @@
+from django.db import transaction
+from django.utils.text import slugify
 from django.conf import settings
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -29,7 +31,12 @@ def verify_google_identity(credential: str) -> dict:
         from google.oauth2 import id_token
     except ImportError as exc:
         raise ValidationError(
-            {"detail": "Google OAuth support is not installed on the backend yet."}
+            {
+                "detail": (
+                    "Google OAuth support is incomplete on the backend. "
+                    "Install the Python requirements, including requests."
+                )
+            }
         ) from exc
 
     allowed_client_ids = [
@@ -92,6 +99,88 @@ def resolve_google_user(identity: dict) -> User:
 
     if updated_fields:
         user.save(update_fields=[*updated_fields, "updated_at"])
+
+    return user
+
+
+def make_unique_username(email: str, full_name: str) -> str:
+    preferred_base = (email.split("@")[0] if email else "").strip()
+    fallback_base = slugify(full_name).replace("-", "") if full_name else ""
+    base_username = preferred_base or fallback_base or "user"
+    candidate = base_username
+    suffix = 2
+
+    while User.objects.filter(username__iexact=candidate).exists():
+        candidate = f"{base_username}{suffix}"
+        suffix += 1
+
+    return candidate
+
+
+def create_google_signup_user(identity: dict) -> User:
+    subject = identity.get("sub", "").strip()
+    email = identity.get("email", "").strip()
+    full_name = (
+        identity.get("name", "").strip()
+        or " ".join(
+            part for part in [identity.get("given_name", "").strip(), identity.get("family_name", "").strip()] if part
+        ).strip()
+        or email.split("@")[0]
+    )
+    first_name = identity.get("given_name", "").strip()
+    last_name = identity.get("family_name", "").strip()
+    tenant_name = f"{full_name} Workspace".strip()
+    store_name = "Main Shop"
+
+    if not first_name and full_name:
+        first_name, _, inferred_last_name = full_name.partition(" ")
+        last_name = last_name or inferred_last_name
+
+    with transaction.atomic():
+        tenant, _ = Tenant.objects.get_or_create(
+            slug="ssms-demo",
+            defaults={
+                "name": "SSMS Demo Tenant",
+                "is_active": True,
+            },
+        )
+        store, _ = Store.objects.get_or_create(
+            tenant=tenant,
+            code="BAIXA",
+            defaults={
+                "name": "Baixa Store",
+                "address": "Maputo",
+                "phone": "+258 84 111 0000",
+                "is_active": True,
+            },
+        )
+        user = User(
+            username=make_unique_username(email, full_name),
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            phone="",
+            tenant=tenant,
+            store=store,
+            role=User.Role.SELLER,
+            google_subject=subject or None,
+            is_active=True,
+        )
+        user.set_unusable_password()
+        user.save()
+        user.assigned_stores.add(store)
+
+        create_audit_event(
+            tenant=tenant,
+            actor=user,
+            store=store,
+            event_type="create",
+            resource_type="user",
+            resource_id=user.id,
+            resource_label=resolve_resource_label(user),
+            summary=f"Created user {user.display_name}.",
+            metadata={"fields": ["username", "email", "phone", "role", "store"]},
+        )
 
     return user
 
@@ -278,7 +367,15 @@ class GoogleAuthView(APIView):
         serializer = GoogleAuthSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         identity = verify_google_identity(serializer.validated_data["credential"])
-        user = resolve_google_user(identity)
+        try:
+            user = resolve_google_user(identity)
+            login_summary = f"{user.display_name} signed in with Google."
+        except ValidationError as exc:
+            detail = exc.detail.get("detail") if isinstance(exc.detail, dict) else exc.detail
+            if detail != "No SSMS user is linked to this Google account yet.":
+                raise
+            user = create_google_signup_user(identity)
+            login_summary = f"{user.display_name} signed up and signed in with Google."
         if user.tenant_id:
             create_audit_event(
                 tenant=user.tenant,
@@ -288,7 +385,7 @@ class GoogleAuthView(APIView):
                 resource_type="session",
                 resource_id=user.id,
                 resource_label=resolve_resource_label(user),
-                summary=f"{user.display_name} signed in with Google.",
+                summary=login_summary,
             )
         return Response(build_token_response(user), status=status.HTTP_200_OK)
 

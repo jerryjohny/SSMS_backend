@@ -5,3 +5,4 @@ django-cors-headers>=4.7,<4.8
 Pillow>=11.2,<11.3
 psycopg[binary]>=3.2,<3.3
 google-auth>=2.50,<2.51
+requests>=2.32,<2.33

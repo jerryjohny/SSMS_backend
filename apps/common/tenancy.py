@@ -3,6 +3,14 @@ from rest_framework.exceptions import PermissionDenied
 from apps.accounts.models import Tenant
 
 
+def resolve_default_superuser_tenant() -> Tenant | None:
+    preferred_tenant = Tenant.objects.filter(slug="ssms-demo", is_active=True).first()
+    if preferred_tenant is not None:
+        return preferred_tenant
+
+    return Tenant.objects.filter(is_active=True).order_by("id").first()
+
+
 def resolve_tenant_from_request(request):
     user = getattr(request, "user", None)
     if getattr(user, "is_authenticated", False) and getattr(user, "tenant_id", None):
@@ -13,9 +21,7 @@ def resolve_tenant_from_request(request):
         if tenant_slug:
             return Tenant.objects.filter(slug=tenant_slug, is_active=True).first()
 
-        active_tenants = list(Tenant.objects.filter(is_active=True).order_by("id")[:2])
-        if len(active_tenants) == 1:
-            return active_tenants[0]
+        return resolve_default_superuser_tenant()
 
     tenant_slug = request.headers.get("X-Tenant-Slug")
     if tenant_slug:

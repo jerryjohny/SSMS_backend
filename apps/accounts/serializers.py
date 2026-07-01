@@ -5,6 +5,8 @@ from django.db.models import Q
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.common.tenancy import resolve_default_superuser_tenant
+
 from .models import Store, Tenant
 
 User = get_user_model()
@@ -15,9 +17,7 @@ def resolve_session_tenant(user) -> Tenant | None:
         return user.tenant
 
     if getattr(user, "is_superuser", False):
-        active_tenants = list(Tenant.objects.filter(is_active=True).order_by("id")[:2])
-        if len(active_tenants) == 1:
-            return active_tenants[0]
+        return resolve_default_superuser_tenant()
 
     return None
 

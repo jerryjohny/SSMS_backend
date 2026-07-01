@@ -6,7 +6,7 @@ from apps.common.models import TenantScopedModel, TimeStampedModel
 
 class Tenant(TimeStampedModel):
     name = models.CharField(max_length=180)
-    slug = models.SlugField(unique=True)
+    slug = models.SlugField(unique=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:

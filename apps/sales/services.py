@@ -16,7 +16,12 @@ def resolve_customer(tenant, customer_data):
 
     customer_id = customer_data.get("id")
     if customer_id:
-        return Customer.objects.get(pk=customer_id, tenant=tenant)
+        try:
+            return Customer.objects.get(pk=customer_id, tenant=tenant)
+        except Customer.DoesNotExist as exc:
+            raise ValidationError(
+                {"customer": "Selected customer does not belong to the active tenant."}
+            ) from exc
 
     return Customer.objects.create(
         tenant=tenant,

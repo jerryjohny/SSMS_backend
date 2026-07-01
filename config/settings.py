@@ -27,9 +27,13 @@ def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def env_list(name: str, default: str = "") -> list[str]:
+    return [item.strip() for item in env(name, default).split(",") if item.strip()]
+
+
 SECRET_KEY = env("SECRET_KEY", "change-me")
 DEBUG = env("DEBUG", "True").lower() == "true"
-ALLOWED_HOSTS = [host.strip() for host in env("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()]
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "127.0.0.1,localhost")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -117,8 +121,10 @@ MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
-CORS_ALLOWED_ORIGINS = [origin.strip() for origin in env("CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()]
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in env("CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()]
+CORS_ALLOW_ALL_ORIGINS = env("CORS_ALLOW_ALL_ORIGINS", "False").lower() == "true"
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
+CORS_ALLOWED_ORIGIN_REGEXES = env_list("CORS_ALLOWED_ORIGIN_REGEXES")
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 GOOGLE_OAUTH_CLIENT_IDS = [
     client_id.strip()
     for client_id in env("GOOGLE_OAUTH_CLIENT_IDS", env("GOOGLE_OAUTH_CLIENT_ID", "")).split(",")
